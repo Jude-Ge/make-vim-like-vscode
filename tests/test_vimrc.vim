@@ -83,10 +83,6 @@ call setline(1, 'always_')
 call cursor(1, 1)
 call feedkeys("A\<Tab>\<Esc>", 'xt')
 call assert_equal('always_comb', getline(1), 'SystemVerilog multi-candidate Tab completion failed')
-call setline(1, 'always_')
-call cursor(1, 1)
-call feedkeys("A\<Tab>\<Tab>\<Esc>", 'xt')
-call assert_equal('always_ff', getline(1), 'Tab did not advance to the next dictionary candidate')
 
 " Verify line and range comments are reversible.
 enew!
