@@ -1,5 +1,7 @@
 " Headless smoke tests for .vimrc. Run from the repository root.
 set nomore
+let s:error_report = 'vim-test-errors.log'
+call delete(s:error_report)
 
 call assert_equal(1, &hidden, 'hidden buffers must be enabled')
 call assert_equal(1, &ignorecase, 'ignorecase must be enabled')
@@ -172,10 +174,12 @@ let s:normal_cterm_fg = synIDattr(hlID('Normal'), 'fg', 'cterm')
 call assert_true(s:normal_gui_fg ==# '#d4d4d4' || s:normal_cterm_fg ==# '252', 'ColorScheme autocmd did not restore the VS Code palette')
 
 if len(v:errors)
+  call writefile(v:errors, s:error_report)
   for s:error in v:errors
     echomsg s:error
   endfor
   cquit 1
 endif
 
+call delete(s:error_report)
 qa!
