@@ -191,10 +191,34 @@ function! s:StatusFile() abort
   return empty(l:name) ? '[Untitled]' : l:name
 endfunction
 
+function! s:ModeLabel() abort
+  let l:mode = mode(1)
+  if l:mode =~# '^no'
+    return 'OPERATOR'
+  elseif l:mode ==# 'v'
+    return 'VISUAL'
+  elseif l:mode ==# 'V'
+    return 'V-LINE'
+  elseif l:mode ==# "\<C-v>"
+    return 'V-BLOCK'
+  elseif l:mode =~# '^[sS]'
+    return 'SELECT'
+  elseif l:mode =~# '^i'
+    return 'INSERT'
+  elseif l:mode =~# '^R'
+    return 'REPLACE'
+  elseif l:mode =~# '^c'
+    return 'COMMAND'
+  elseif l:mode =~# '^t'
+    return 'TERMINAL'
+  endif
+  return 'NORMAL'
+endfunction
+
 if exists('g:vscode_statusline')
   set laststatus=2
   set noshowmode
-  let &statusline = ' %{mode()}  %{' . expand('<SID>') . 'StatusFile()}%m%r%h%w'
+  let &statusline = ' %{' . expand('<SID>') . 'ModeLabel()}  %{' . expand('<SID>') . 'StatusFile()}%m%r%h%w'
         \ . '%='
         \ . '%{&filetype ==# "" ? "plain text" : &filetype}  '
         \ . '%{&fileencoding ==# "" ? &encoding : &fileencoding}  '
@@ -249,12 +273,33 @@ nnoremap <silent> <C-PageUp> :bprevious<CR>
 nnoremap <silent> <C-PageDown> :bnext<CR>
 nnoremap <silent> <leader>bb :buffers<CR>:buffer<Space>
 nnoremap <silent> <leader>bd :confirm bdelete<CR>
-nnoremap <silent> <leader>bo :%bdelete<Bar>edit#<Bar>bdelete#<CR>
+
+function! s:OnlyCurrentBuffer() abort
+  let l:current = bufnr('%')
+  let l:modified = []
+  for l:bufnr in range(1, bufnr('$'))
+    if l:bufnr == l:current || !buflisted(l:bufnr)
+      continue
+    endif
+    if getbufvar(l:bufnr, '&modified')
+      call add(l:modified, empty(bufname(l:bufnr)) ? '[Untitled]' : fnamemodify(bufname(l:bufnr), ':t'))
+    else
+      silent execute 'bdelete ' . l:bufnr
+    endif
+  endfor
+  if !empty(l:modified)
+    echohl WarningMsg
+    echo 'Kept modified buffers: ' . join(l:modified, ', ')
+    echohl None
+  endif
+endfunction
+
+nnoremap <silent> <leader>bo :call <SID>OnlyCurrentBuffer()<CR>
+command! VSCodeOnlyBuffer call <SID>OnlyCurrentBuffer()
 
 " Familiar editor actions.
 nnoremap <silent> <F2> :let @/=expand('<cword>')<Bar>set hlsearch<CR>cgn
 nnoremap <silent> gd gd
-nnoremap <silent> gr :vimgrep /<C-R><C-W>/gj **/*<CR>:copen<CR>
 nnoremap <silent> <leader>rn :let @/=expand('<cword>')<Bar>set hlsearch<CR>cgn
 inoremap <expr> <Tab> pumvisible() ? "\<C-n>" : "\<Tab>"
 inoremap <expr> <S-Tab> pumvisible() ? "\<C-p>" : "\<C-d>"
@@ -307,38 +352,125 @@ endif
 " -----------------------------------------------------------------------------
 " Go to File and project-wide search, implemented entirely in Vimscript
 " -----------------------------------------------------------------------------
+let s:file_cache_root = ''
+let s:file_cache = []
+
+function! s:IsProjectFile(path) abort
+  let l:path = substitute(a:path, '\\', '/', 'g')
+  if !filereadable(a:path)
+    return 0
+  endif
+  if l:path =~# '/\%(.git\|.svn\|node_modules\|dist\|build\)/'
+    return 0
+  endif
+  return l:path !~# '\.\%(o\|obj\|pyc\|class\|jar\|zip\|png\|jpe\?g\|gif\|pdf\)$'
+endfunction
+
+function! s:ProjectFiles(refresh) abort
+  let l:root = getcwd()
+  if a:refresh || s:file_cache_root !=# l:root
+    let s:file_cache_root = l:root
+    let s:file_cache = []
+    let l:candidates = globpath('.', '**/*', 0, 1)
+          \ + globpath('.', '.*', 0, 1)
+          \ + globpath('.', '.github/**/*', 0, 1)
+    for l:path in l:candidates
+      if s:IsProjectFile(l:path)
+        call add(s:file_cache, substitute(substitute(l:path, '\\', '/', 'g'), '^\./', '', ''))
+      endif
+    endfor
+    call sort(s:file_cache)
+    call uniq(s:file_cache)
+  endif
+  return copy(s:file_cache)
+endfunction
+
+function! s:FuzzyPattern(query) abort
+  let l:pattern = ''
+  for l:char in split(a:query, '\zs')
+    let l:pattern .= (empty(l:pattern) ? '' : '.\{-}') . escape(l:char, '\.^$~[]*')
+  endfor
+  return l:pattern
+endfunction
+
 function! s:FindFile() abort
-  let l:name = input('Go to File: ', '', 'file')
-  if empty(l:name)
+  let l:query = input('Go to File: ')
+  if empty(l:query)
     return
   endif
-  try
-    execute 'find ' . fnameescape(l:name)
-  catch /^Vim\%((\a\+)\)\=:E345/
-    echohl ErrorMsg | echo 'File not found under project: ' . l:name | echohl None
-  endtry
+  let l:pattern = s:FuzzyPattern(l:query)
+  let l:matches = filter(s:ProjectFiles(0), 'v:val =~? l:pattern')
+  if empty(l:matches)
+    echohl WarningMsg | echo 'No matching project file: ' . l:query | echohl None
+    return
+  endif
+  if len(l:matches) == 1
+    execute 'edit ' . fnameescape(l:matches[0])
+    return
+  endif
+
+  let l:shown = l:matches[0 : min([len(l:matches), 20]) - 1]
+  let l:choices = ['Go to File (select a number):']
+  for l:index in range(0, len(l:shown) - 1)
+    call add(l:choices, printf('%2d. %s', l:index + 1, l:shown[l:index]))
+  endfor
+  if len(l:matches) > len(l:shown)
+    call add(l:choices, printf('... %d more; use a narrower query', len(l:matches) - len(l:shown)))
+  endif
+  let l:choice = inputlist(l:choices)
+  if l:choice >= 1 && l:choice <= len(l:shown)
+    execute 'edit ' . fnameescape(l:shown[l:choice - 1])
+  endif
+endfunction
+
+function! s:RefreshProjectFiles() abort
+  let l:count = len(s:ProjectFiles(1))
+  echo printf('Project file cache refreshed: %d files', l:count)
 endfunction
 
 if exists('g:vscode_file_finder')
   nnoremap <silent> <C-p> :call <SID>FindFile()<CR>
   nnoremap <silent> <leader>ff :call <SID>FindFile()<CR>
   command! VSCodeFind call <SID>FindFile()
+  command! VSCodeFilesRefresh call <SID>RefreshProjectFiles()
 endif
 
-function! s:ProjectSearch() abort
-  let l:pattern = input('Search project: ', expand('<cword>'))
-  if empty(l:pattern)
+function! s:RunProjectSearch(text) abort
+  if empty(a:text)
     return
   endif
+  let l:pattern = '\V' . escape(a:text, '/\\')
   let @/ = l:pattern
-  try
-    silent execute 'vimgrep /' . escape(l:pattern, '/\\') . '/gj **/*'
-    copen
-  catch /^Vim\%((\a\+)\)\=:E480/
-    echohl WarningMsg | echo 'No matches: ' . l:pattern | echohl None
-  catch /^Vim\%((\a\+)\)\=:E77/
+  let l:files = filter(s:ProjectFiles(0), 'filereadable(v:val)')
+  call setqflist([], 'r')
+  if empty(l:files)
     echohl WarningMsg | echo 'No searchable files under: ' . getcwd() | echohl None
-  endtry
+    return
+  endif
+
+  " Keep each command short enough for conservative shells and old Vim builds.
+  for l:start in range(0, len(l:files) - 1, 40)
+    let l:batch = l:files[l:start : min([l:start + 39, len(l:files) - 1])]
+    try
+      silent execute 'vimgrepadd /' . l:pattern . '/gj ' . join(map(copy(l:batch), 'fnameescape(v:val)'))
+    catch /^Vim\%((\a\+)\)\=:E480/
+      " A batch without matches is normal; continue with the remaining files.
+    endtry
+  endfor
+
+  if empty(getqflist())
+    echohl WarningMsg | echo 'No matches: ' . a:text | echohl None
+  else
+    copen
+  endif
+endfunction
+
+function! s:ProjectSearch() abort
+  call s:RunProjectSearch(input('Search project: ', expand('<cword>')))
+endfunction
+
+function! s:SearchWordUnderCursor() abort
+  call s:RunProjectSearch(expand('<cword>'))
 endfunction
 
 if exists('g:vscode_project_search')
@@ -346,7 +478,9 @@ if exists('g:vscode_project_search')
   nnoremap <silent> <F7> :copen<CR>
   nnoremap <silent> [q :cprevious<CR>
   nnoremap <silent> ]q :cnext<CR>
+  nnoremap <silent> gr :call <SID>SearchWordUnderCursor()<CR>
   command! VSCodeSearch call <SID>ProjectSearch()
+  command! VSCodeSearchWord call <SID>SearchWordUnderCursor()
 endif
 
 " -----------------------------------------------------------------------------
@@ -390,6 +524,7 @@ endfunction
 if exists('g:vscode_comments')
   augroup vscode_comment_markers
     autocmd!
+    autocmd FileType * unlet! b:vscode_comment_marker b:vscode_comment_end
     autocmd FileType c,cpp,cs,java,javascript,javascriptreact,typescript,typescriptreact,go,rust,swift,kotlin,scala let b:vscode_comment_marker = '//'
     autocmd FileType python,ruby,perl,sh,bash,zsh,fish,yaml,toml,make,dockerfile,conf let b:vscode_comment_marker = '#'
     autocmd FileType vim let b:vscode_comment_marker = '"'
@@ -486,7 +621,10 @@ if exists('g:vscode_persistent_undo') && has('persistent_undo')
   endif
   if isdirectory(s:undo_dir)
     set undofile
-    execute 'set undodir^=' . fnameescape(s:undo_dir) . '//'
+    let s:undo_entry = s:undo_dir . '//'
+    if index(split(&undodir, ','), s:undo_entry) < 0
+      let &undodir = s:undo_entry . ',' . &undodir
+    endif
   endif
 endif
 

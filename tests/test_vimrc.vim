@@ -12,11 +12,20 @@ call assert_notequal('', maparg('<C-b>', 'n'), 'Ctrl-B mapping is missing')
 call assert_notequal('', maparg('<leader>fg', 'n'), 'project search mapping is missing')
 call assert_equal(2, exists(':VSCodeHelp'), ':VSCodeHelp command is missing')
 call assert_equal(2, exists(':VSCodeComment'), ':VSCodeComment command is missing')
+call assert_equal(2, exists(':VSCodeFilesRefresh'), ':VSCodeFilesRefresh command is missing')
+call assert_equal(2, exists(':VSCodeOnlyBuffer'), ':VSCodeOnlyBuffer command is missing')
+
+" Reloading the file must not grow comma-separated path options.
+let s:undo_before_reload = &undodir
+let s:vimrc_path = fnamemodify(resolve(expand('<sfile>:p')), ':h:h') . '/.vimrc'
+execute 'source ' . fnameescape(s:vimrc_path)
+call assert_equal(s:undo_before_reload, &undodir, 'reloading duplicated the persistent undo directory')
 
 " Statusline expressions are evaluated lazily, so force their evaluation here.
 if exists('*eval_statusline')
   let s:rendered_status = eval_statusline(&statusline)
   call assert_match('\[Untitled\]', s:rendered_status.str, 'statusline file expression failed')
+  call assert_match('\%(NORMAL\|COMMAND\)', s:rendered_status.str, 'statusline mode label is not readable')
 endif
 
 " Verify file-type indentation overrides.
@@ -47,6 +56,10 @@ VSCodeComment
 call assert_equal('<!-- <main>hello</main> -->', getline(1), 'HTML comment pair is incomplete')
 VSCodeComment
 call assert_equal('<main>hello</main>', getline(1), 'HTML comment pair was not removed')
+setlocal filetype=python
+call setline(1, 'value = 1')
+VSCodeComment
+call assert_equal('# value = 1', getline(1), 'comment suffix leaked across file types')
 
 " Exercise insert-mode expression mappings, including paired backspace.
 enew!
@@ -65,14 +78,39 @@ call cursor(1, 1)
 call feedkeys("i'\<BS>\<Esc>", 'xt')
 call assert_equal('', getline(1), 'paired backspace did not remove both quotes')
 
+" Closing other buffers must preserve modified content and remove safe buffers.
+enew!
+file keep-buffer.txt
+setlocal nomodified
+let s:keep_buffer = bufnr('%')
+enew!
+file disposable-buffer.txt
+setlocal nomodified
+let s:disposable_buffer = bufnr('%')
+execute 'buffer ' . s:keep_buffer
+VSCodeOnlyBuffer
+call assert_false(buflisted(s:disposable_buffer), 'unmodified buffer was not closed')
+enew!
+file modified-buffer.txt
+call setline(1, 'unsaved work')
+let s:modified_buffer = bufnr('%')
+execute 'buffer ' . s:keep_buffer
+VSCodeOnlyBuffer
+call assert_true(buflisted(s:modified_buffer), 'modified buffer was discarded')
+execute 'bdelete! ' . s:modified_buffer
+
 " Exercise the interactive file and search prompts with queued key input.
-call feedkeys("README.md\<CR>", 't')
+call feedkeys("RME\<CR>", 't')
 VSCodeFind
-call assert_equal('README.md', expand('%:t'), 'Go to File did not open README.md')
-call feedkeys("\<C-U>Make Vim Like VS Code\<CR>", 't')
+call assert_equal('README.md', expand('%:t'), 'fuzzy Go to File did not open README.md')
+call feedkeys("\<C-U>path=.,**\<CR>", 't')
 VSCodeSearch
 call assert_true(len(getqflist()) > 0, 'project search returned no quickfix entries')
-call assert_true(len(filter(copy(getqflist()), 'fnamemodify(bufname(v:val.bufnr), ":t") ==# "README.md"')) > 0, 'project search did not find README.md')
+call assert_true(len(filter(copy(getqflist()), 'fnamemodify(bufname(v:val.bufnr), ":t") ==# ".vimrc"')) > 0, 'literal project search did not find .vimrc')
+cclose
+call feedkeys("\<C-U>runs-on: ubuntu-latest\<CR>", 't')
+VSCodeSearch
+call assert_true(len(filter(copy(getqflist()), 'fnamemodify(bufname(v:val.bufnr), ":t") ==# "test.yml"')) > 0, 'project search skipped .github content')
 cclose
 
 " Verify the palette was actually installed.
