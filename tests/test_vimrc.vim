@@ -37,6 +37,55 @@ setfiletype make
 call assert_equal(0, &l:expandtab, 'Makefiles must preserve hard tabs')
 call assert_equal(8, &l:tabstop, 'Makefile tabstop must be 8')
 
+" Verify file-type-specific HDL dictionaries and actual Tab completion.
+enew!
+doautocmd BufNewFile sample.VHD
+call assert_equal('vhdl', &l:filetype, 'uppercase .VHD detection failed')
+enew!
+doautocmd BufNewFile sample.vh
+call assert_equal('verilog', &l:filetype, '.vh detection failed')
+enew!
+doautocmd BufNewFile sample.SVH
+call assert_equal('systemverilog', &l:filetype, 'uppercase .SVH detection failed')
+
+enew!
+setlocal filetype=vhdl
+call assert_equal(1, get(b:, 'vscode_dictionary_completion', 0), 'VHDL dictionary was not enabled')
+call assert_equal('vhdl.dict', fnamemodify(b:vscode_dictionary_path, ':t'), 'wrong VHDL dictionary')
+call assert_true(index(split(&l:complete, ','), 'k') >= 0, 'dictionary source missing from complete')
+call assert_equal('--', b:vscode_comment_marker, 'wrong VHDL comment marker')
+call assert_equal(2, &l:shiftwidth, 'VHDL shiftwidth must be 2')
+call setline(1, 'arch')
+call cursor(1, 1)
+call feedkeys("A\<Tab>\<Esc>", 'xt')
+call assert_equal('architecture', getline(1), 'VHDL Tab completion failed')
+call append(1, '')
+call cursor(2, 1)
+call feedkeys("A\<Tab>\<Esc>", 'xt')
+call assert_equal('  ', getline(2), 'HDL Tab indentation fallback failed')
+
+enew!
+setlocal filetype=verilog
+call assert_equal('verilog.dict', fnamemodify(b:vscode_dictionary_path, ':t'), 'wrong Verilog dictionary')
+call assert_equal('//', b:vscode_comment_marker, 'wrong Verilog comment marker')
+call setline(1, 'localp')
+call cursor(1, 1)
+call feedkeys("A\<Tab>\<Esc>", 'xt')
+call assert_equal('localparam', getline(1), 'Verilog Tab completion failed')
+
+enew!
+setlocal filetype=systemverilog
+call assert_equal('systemverilog.dict', fnamemodify(b:vscode_dictionary_path, ':t'), 'wrong SystemVerilog dictionary')
+call assert_equal('//', b:vscode_comment_marker, 'wrong SystemVerilog comment marker')
+call setline(1, 'always_')
+call cursor(1, 1)
+call feedkeys("A\<Tab>\<Esc>", 'xt')
+call assert_equal('always_comb', getline(1), 'SystemVerilog multi-candidate Tab completion failed')
+call setline(1, 'always_')
+call cursor(1, 1)
+call feedkeys("A\<Tab>\<Tab>\<Esc>", 'xt')
+call assert_equal('always_ff', getline(1), 'Tab did not advance to the next dictionary candidate')
+
 " Verify line and range comments are reversible.
 enew!
 setfiletype python

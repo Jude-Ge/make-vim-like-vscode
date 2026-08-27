@@ -14,6 +14,7 @@ let g:vscode_file_finder         = 1  " Ctrl-P / <Space>ff: project file prompt
 let g:vscode_project_search      = 1  " <Space>fg: project-wide text search
 let g:vscode_comments            = 1  " Ctrl-/ or <Space>/: toggle comments
 let g:vscode_auto_pairs          = 1  " automatically close brackets and quotes
+let g:vscode_hdl_dictionary      = 1  " Tab completion for VHDL/Verilog/SystemVerilog
 let g:vscode_folding             = 1  " indentation/syntax folding shortcuts
 let g:vscode_terminal            = 1  " <Space>tt: built-in terminal when available
 let g:vscode_persistent_undo     = 1  " undo history survives Vim restarts
@@ -25,6 +26,7 @@ let g:vscode_system_clipboard    = 1  " <Space>y/p when Vim has +clipboard
 " Foundation
 " -----------------------------------------------------------------------------
 scriptencoding utf-8
+let s:vimrc_dir = fnamemodify(resolve(expand('<sfile>:p')), ':h')
 set nocompatible
 set encoding=utf-8
 set hidden
@@ -301,7 +303,19 @@ command! VSCodeOnlyBuffer call <SID>OnlyCurrentBuffer()
 nnoremap <silent> <F2> :let @/=expand('<cword>')<Bar>set hlsearch<CR>cgn
 nnoremap <silent> gd gd
 nnoremap <silent> <leader>rn :let @/=expand('<cword>')<Bar>set hlsearch<CR>cgn
-inoremap <expr> <Tab> pumvisible() ? "\<C-n>" : "\<Tab>"
+
+function! s:SmartTab() abort
+  if pumvisible()
+    return "\<C-n>"
+  endif
+  let l:before_cursor = strpart(getline('.'), 0, col('.') - 1)
+  if get(b:, 'vscode_dictionary_completion', 0) && l:before_cursor =~# '\k$'
+    return "\<C-x>\<C-k>\<C-n>"
+  endif
+  return "\<Tab>"
+endfunction
+
+inoremap <expr> <Tab> <SID>SmartTab()
 inoremap <expr> <S-Tab> pumvisible() ? "\<C-p>" : "\<C-d>"
 inoremap <C-Space> <C-n>
 
@@ -525,10 +539,10 @@ if exists('g:vscode_comments')
   augroup vscode_comment_markers
     autocmd!
     autocmd FileType * unlet! b:vscode_comment_marker b:vscode_comment_end
-    autocmd FileType c,cpp,cs,java,javascript,javascriptreact,typescript,typescriptreact,go,rust,swift,kotlin,scala let b:vscode_comment_marker = '//'
+    autocmd FileType c,cpp,cs,java,javascript,javascriptreact,typescript,typescriptreact,go,rust,swift,kotlin,scala,verilog,systemverilog let b:vscode_comment_marker = '//'
     autocmd FileType python,ruby,perl,sh,bash,zsh,fish,yaml,toml,make,dockerfile,conf let b:vscode_comment_marker = '#'
     autocmd FileType vim let b:vscode_comment_marker = '"'
-    autocmd FileType lua,sql,haskell let b:vscode_comment_marker = '--'
+    autocmd FileType lua,sql,haskell,vhdl let b:vscode_comment_marker = '--'
     autocmd FileType html,xml let b:vscode_comment_marker = '<!--'
     autocmd FileType html,xml let b:vscode_comment_end = '-->'
     autocmd FileType css,scss,less let b:vscode_comment_marker = '/*'
@@ -647,11 +661,55 @@ endif
 " -----------------------------------------------------------------------------
 " File-type refinements and optional save hooks
 " -----------------------------------------------------------------------------
+function! s:FindDictionary(filename) abort
+  let l:directories = [
+        \ s:vimrc_dir . '/dict',
+        \ expand('~/.vim/dict'),
+        \ expand('~/vimfiles/dict')
+        \ ]
+  for l:directory in l:directories
+    let l:path = simplify(l:directory . '/' . a:filename)
+    if filereadable(l:path)
+      return l:path
+    endif
+  endfor
+  return ''
+endfunction
+
+function! s:EnableHDLDictionary(filename) abort
+  let l:path = s:FindDictionary(a:filename)
+  if empty(l:path)
+    let b:vscode_dictionary_completion = 0
+    return
+  endif
+  if index(split(&l:dictionary, ','), l:path) < 0
+    let &l:dictionary = empty(&l:dictionary) ? l:path : l:path . ',' . &l:dictionary
+  endif
+  if index(split(&l:complete, ','), 'k') < 0
+    setlocal complete+=k
+  endif
+  let b:vscode_dictionary_completion = 1
+  let b:vscode_dictionary_path = l:path
+endfunction
+
+if exists('g:vscode_hdl_dictionary')
+  augroup vscode_hdl_dictionary
+    autocmd!
+    autocmd BufRead,BufNewFile *.vhd,*.vhdl,*.vho,*.VHD,*.VHDL,*.VHO setfiletype vhdl
+    autocmd BufRead,BufNewFile *.v,*.vh,*.V,*.VH setfiletype verilog
+    autocmd BufRead,BufNewFile *.sv,*.svh,*.SV,*.SVH setfiletype systemverilog
+    autocmd FileType vhdl call <SID>EnableHDLDictionary('vhdl.dict')
+    autocmd FileType verilog call <SID>EnableHDLDictionary('verilog.dict')
+    autocmd FileType systemverilog call <SID>EnableHDLDictionary('systemverilog.dict')
+  augroup END
+endif
+
 augroup vscode_filetypes
   autocmd!
   autocmd FileType python setlocal expandtab tabstop=4 shiftwidth=4 softtabstop=4
   autocmd FileType javascript,javascriptreact,typescript,typescriptreact,json,jsonc,html,css,scss,yaml setlocal expandtab tabstop=2 shiftwidth=2 softtabstop=2
   autocmd FileType c,cpp,cs,java,go,rust,sh,bash,zsh,lua,vim setlocal expandtab tabstop=4 shiftwidth=4 softtabstop=4
+  autocmd FileType vhdl,verilog,systemverilog setlocal expandtab tabstop=2 shiftwidth=2 softtabstop=2
   autocmd FileType make setlocal noexpandtab tabstop=8 shiftwidth=8 softtabstop=0
   autocmd FileType markdown,text setlocal wrap linebreak
   autocmd FileType netrw setlocal relativenumber
@@ -676,5 +734,6 @@ endif
 command! VSCodeHelp echo join([
       \ 'Ctrl-S save | Ctrl-P file | Ctrl-B explorer | Ctrl-N new buffer',
       \ 'Space ff file | Space fg search | Space / comment | Space tt terminal',
-      \ '[b/]b buffers | [q/]q results | Ctrl-h/j/k/l windows | F3 relative numbers'
+      \ '[b/]b buffers | [q/]q results | Ctrl-h/j/k/l windows | F3 relative numbers',
+      \ 'HDL: type a keyword prefix, then Tab/Shift-Tab to complete'
       \ ], "\n")

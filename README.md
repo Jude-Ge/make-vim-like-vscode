@@ -1,12 +1,14 @@
 # Make Vim Like VS Code
 
-在断网 Linux 上，只安装 Vim、不安装任何第三方插件，也能获得一套接近 VS Code 的编辑体验。整个方案只有一个可复制的 [`.vimrc`](./.vimrc)，内含 Dark+ 风格配色、文件树、模糊项目文件查找、全文搜索、状态栏、缓冲区标签式操作、分屏、注释、补全、括号补全、折叠、终端和持久撤销。
+在断网 Linux 上，只安装 Vim、不安装任何第三方插件，也能获得一套接近 VS Code 的编辑体验。主配置是可复制的 [`.vimrc`](./.vimrc)，内含 Dark+ 风格配色、文件树、模糊项目文件查找、全文搜索、状态栏、缓冲区标签式操作、分屏、注释、补全、括号补全、折叠、终端和持久撤销；仓库还附带可选的 VHDL、Verilog 和 SystemVerilog 离线关键字字典。
 
 ## 快速安装
 
 ```sh
 cp ~/.vimrc ~/.vimrc.backup 2>/dev/null || true
 cp .vimrc ~/.vimrc
+mkdir -p ~/.vim/dict
+cp dict/*.dict ~/.vim/dict/
 vim
 ```
 
@@ -26,4 +28,4 @@ vim -Nu .vimrc -n -es -S tests/test_vimrc.vim
 
 ## 设计边界
 
-这是“只有 `.vimrc`”条件下对 VS Code 工作流的近似，不包含 LSP、语义补全、调试器、Git 图形界面或大型项目中的高级模糊排序。对应功能使用纯 Vimscript 文件匹配、`vimgrep`、tag 跳转和 omni completion；因此可完全离线，也不会把插件文件带到目标机器。
+这是以 `.vimrc` 为核心的 VS Code 工作流近似，不包含 LSP、语义补全、调试器、Git 图形界面或大型项目中的高级模糊排序。对应功能使用纯 Vimscript 文件匹配、`vimgrep`、tag 跳转、omni completion 和普通文本字典；因此可完全离线，不依赖插件管理器。

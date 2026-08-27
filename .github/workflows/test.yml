@@ -18,5 +18,12 @@ jobs:
       - name: Show Vim version
         run: vim --version | head -n 12
 
+      - name: Validate HDL dictionaries
+        run: |
+          for dictionary in dict/*.dict; do
+            LC_ALL=C sort -c "$dictionary"
+            test "$(wc -l < "$dictionary")" -eq "$(sort -u "$dictionary" | wc -l)"
+          done
+
       - name: Run headless behavior tests
         run: vim -Nu .vimrc -n -es -S tests/test_vimrc.vim

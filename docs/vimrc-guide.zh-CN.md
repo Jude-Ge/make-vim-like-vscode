@@ -18,6 +18,8 @@ vim --version
 # 在仓库目录执行
 cp ~/.vimrc ~/.vimrc.backup 2>/dev/null || true
 cp .vimrc ~/.vimrc
+mkdir -p ~/.vim/dict
+cp dict/*.dict ~/.vim/dict/
 
 # 检查配置是否能无界面加载
 vim -Nu ~/.vimrc -n -es +'quit'
@@ -53,6 +55,7 @@ let g:vscode_mouse = 1        " 当前启用
 | `vscode_project_search` | 开 | 使用内置 `vimgrep` 全项目搜索 |
 | `vscode_comments` | 开 | 单行/选区注释切换 |
 | `vscode_auto_pairs` | 开 | 括号、方括号、花括号和引号补全 |
+| `vscode_hdl_dictionary` | 开 | VHDL、Verilog、SystemVerilog 离线关键字补全 |
 | `vscode_folding` | 开 | 代码折叠及快捷键 |
 | `vscode_terminal` | 开 | Vim 内置终端；要求 `+terminal` |
 | `vscode_persistent_undo` | 开 | 关闭文件或 Vim 后仍可撤销 |
@@ -111,7 +114,27 @@ let g:vscode_mouse = 1        " 当前启用
 
 很多终端把 `Ctrl-/` 发送为 `Ctrl-_`，配置同时使用该编码；若终端不支持，`<Space>/` 始终可用。`Alt` 组合键也取决于终端模拟器。
 
-注释标记会根据文件类型选择：C/Java/JavaScript/Go/Rust 使用 `//`，Python/Shell/YAML 使用 `#`，Vim 使用 `"`，Lua/SQL 使用 `--`，HTML/XML 使用 `<!-- -->`，CSS/SCSS 使用 `/* */`，TeX 使用 `%`。未知类型回退为 `#`。对 HTML 和 CSS 的多行选区会逐行添加完整注释对，这是零插件条件下更安全的做法，不等同于嵌套块注释插件。
+### HDL 离线关键字补全
+
+仓库提供 `dict/vhdl.dict`、`dict/verilog.dict` 和 `dict/systemverilog.dict`。配置根据文件类型自动选择，支持 `.vhd`/`.vhdl`/`.vho`、`.v`/`.vh`、`.sv`/`.svh`，扩展名大小写均可。
+
+在插入模式输入关键字前缀后按 `Tab`，会打开字典补全并选中第一个候选；继续按 `Tab` 向下选择，按 `Shift-Tab` 向上选择，输入其他字符或按 `Enter` 接受当前候选。例如：
+
+```text
+VHDL:          arch<Tab>       → architecture
+Verilog:       localp<Tab>     → localparam
+SystemVerilog: always_<Tab>    → always_comb（继续按 Tab 可选择 always_ff 等候选）
+```
+
+光标前是空白时，`Tab` 仍执行普通缩进。配置依次查找以下位置，找到第一份对应字典即使用：
+
+1. `.vimrc` 同目录下的 `dict/`；
+2. Linux 的 `~/.vim/dict/`；
+3. Windows 的 `~/vimfiles/dict/`。
+
+若只复制 `.vimrc` 而没有复制字典，HDL 文件仍可正常编辑，`Tab` 会自动退回普通缩进。注释掉顶部的 `let g:vscode_hdl_dictionary = 1` 可完全禁用该功能。
+
+注释标记会根据文件类型选择：C/Java/JavaScript/Go/Rust/Verilog/SystemVerilog 使用 `//`，Python/Shell/YAML 使用 `#`，Vim 使用 `"`，Lua/SQL/VHDL 使用 `--`，HTML/XML 使用 `<!-- -->`，CSS/SCSS 使用 `/* */`，TeX 使用 `%`。未知类型回退为 `#`。对 HTML 和 CSS 的多行选区会逐行添加完整注释对，这是零插件条件下更安全的做法，不等同于嵌套块注释插件。
 
 ### 分屏、折叠和终端
 
