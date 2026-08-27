@@ -1,0 +1,22 @@
+name: Test vimrc
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  vim:
+    name: Vim on Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show Vim version
+        run: vim --version | head -n 12
+
+      - name: Run headless behavior tests
+        run: vim -Nu .vimrc -n -es -S tests/test_vimrc.vim
